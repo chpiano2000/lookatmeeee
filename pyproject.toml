@@ -1,0 +1,25 @@
+[project]
+name = "lookatme"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "click>=8.4.2",
+    "marshmallow>=4.3.0",
+    "mistune>=3.3.4",
+    "pillow>=12.3.0",
+    "pygments>=2.20.0",
+    "pyqrcode>=1.2.1",
+    "pyyaml>=6.0.3",
+    "six>=1.17.0",
+    "urwid>=4.0.8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "pytest-xdist>=3.8.0",
+]
