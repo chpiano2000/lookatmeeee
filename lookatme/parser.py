@@ -14,13 +14,202 @@ from lookatme.slide import Slide
 from lookatme.tutorial import tutor
 
 
+_MD = mistune.create_markdown(
+    renderer=None,
+    plugins=["strikethrough", "url", "table"],
+)
+
+
+def _reconstruct_text(children):
+    """Reconstruct a raw markdown text string from a list of mistune 3 inline
+    tokens. Used so that downstream code that still expects a ``text`` field
+    on paragraph/heading tokens continues to work.
+    """
+    parts = []
+    for c in children or []:
+        typ = c.get("type")
+        if typ == "text":
+            parts.append(c.get("raw", ""))
+        elif typ == "codespan":
+            parts.append("`" + c.get("raw", "") + "`")
+        elif typ == "linebreak":
+            parts.append("\n")
+        elif typ == "softbreak":
+            parts.append(" ")
+        elif typ == "emphasis":
+            parts.append("*" + _reconstruct_text(c.get("children")) + "*")
+        elif typ == "strong":
+            parts.append("**" + _reconstruct_text(c.get("children")) + "**")
+        elif typ == "strikethrough":
+            parts.append("~~" + _reconstruct_text(c.get("children")) + "~~")
+        elif typ == "link":
+            url = (c.get("attrs") or {}).get("url", "")
+            parts.append(
+                "[" + _reconstruct_text(c.get("children")) + "](" + url + ")"
+            )
+        elif typ == "image":
+            url = (c.get("attrs") or {}).get("url", "")
+            parts.append(
+                "![" + _reconstruct_text(c.get("children")) + "](" + url + ")"
+            )
+        elif typ == "url":
+            parts.append((c.get("attrs") or {}).get("url", c.get("raw", "")))
+        elif typ == "inline_html":
+            parts.append(c.get("raw", ""))
+        else:
+            parts.append(c.get("raw", ""))
+    return "".join(parts)
+
+
+def _normalize_list_item_children(children):
+    """List item content is normalized specially — paragraphs are collapsed
+    to plain text (so the item bullet and its content stay on one row),
+    blank_line separators become ``newline`` tokens, and any leading or
+    trailing blank_line noise is trimmed.
+    """
+    trimmed = list(children or [])
+    while trimmed and trimmed[0].get("type") == "blank_line":
+        trimmed.pop(0)
+    while trimmed and trimmed[-1].get("type") == "blank_line":
+        trimmed.pop()
+
+    normalized = []
+    for c in trimmed:
+        typ = c.get("type")
+        if typ == "blank_line":
+            normalized.append({"type": "newline"})
+        elif typ == "paragraph":
+            inner = c.get("children", [])
+            normalized.append({
+                "type": "text",
+                "text": _reconstruct_text(inner),
+                "children": inner,
+            })
+        else:
+            normalized.extend(_normalize_tokens([c]))
+    return normalized
+
+
+def _normalize_tokens(tokens):
+    """Convert mistune 3.x block tokens into the flat token stream that the
+    existing renderer stack expects (list_start/list_item_start/list_end,
+    hrule, code, block_html, etc.).
+    """
+    out = []
+    for t in tokens:
+        typ = t.get("type")
+
+        if typ == "blank_line":
+            continue
+
+        if typ == "thematic_break":
+            out.append({"type": "hrule"})
+
+        elif typ == "heading":
+            level = (t.get("attrs") or {}).get("level", 1)
+            children = t.get("children", [])
+            out.append({
+                "type": "heading",
+                "level": level,
+                "text": _reconstruct_text(children),
+                "children": children,
+            })
+
+        elif typ == "paragraph":
+            children = t.get("children", [])
+            out.append({
+                "type": "paragraph",
+                "text": _reconstruct_text(children),
+                "children": children,
+            })
+
+        elif typ == "block_text":
+            children = t.get("children", [])
+            out.append({
+                "type": "text",
+                "text": _reconstruct_text(children),
+                "children": children,
+            })
+
+        elif typ == "block_code":
+            attrs = t.get("attrs") or {}
+            lang = attrs.get("info") or "text"
+            raw = t.get("raw", "")
+            marker = t.get("marker") or ""
+            if marker and raw.rstrip("\n").endswith(marker):
+                raw = raw.rstrip("\n")[:-len(marker)].rstrip("\n") + "\n"
+            out.append({
+                "type": "code",
+                "lang": lang,
+                "text": raw,
+            })
+
+        elif typ == "block_quote":
+            out.append({"type": "block_quote_start"})
+            out.extend(_normalize_tokens(t.get("children", [])))
+            out.append({"type": "block_quote_end"})
+
+        elif typ == "list":
+            attrs = t.get("attrs") or {}
+            ordered = attrs.get("ordered", False)
+            out.append({"type": "list_start", "ordered": ordered})
+            for item in t.get("children", []):
+                out.append({"type": "list_item_start"})
+                out.extend(_normalize_list_item_children(item.get("children", [])))
+                out.append({"type": "list_item_end"})
+            out.append({"type": "list_end"})
+
+        elif typ == "list_item":
+            out.append({"type": "list_item_start"})
+            out.extend(_normalize_tokens(t.get("children", [])))
+            out.append({"type": "list_item_end"})
+
+        elif typ == "block_html":
+            out.append({"type": "block_html", "text": t.get("raw", "")})
+
+        elif typ == "table":
+            headers = []
+            aligns = []
+            cells = []
+            for child in t.get("children", []):
+                ctype = child.get("type")
+                if ctype == "table_head":
+                    for cell in child.get("children", []):
+                        headers.append(
+                            _reconstruct_text(cell.get("children", []))
+                        )
+                        align = (cell.get("attrs") or {}).get("align") or "left"
+                        aligns.append(align)
+                elif ctype == "table_body":
+                    for row in child.get("children", []):
+                        row_cells = []
+                        for cell in row.get("children", []):
+                            row_cells.append(
+                                _reconstruct_text(cell.get("children", []))
+                            )
+                        cells.append(row_cells)
+            out.append({
+                "type": "table",
+                "header": headers,
+                "align": aligns,
+                "cells": cells,
+            })
+
+        else:
+            out.append(t)
+
+    return out
+
+
 def is_progressive_slide_delimiter_token(token):
     """Returns True if the token indicates the end of a progressive slide
 
     :param dict token: The markdown token
     :returns: True if the token is a progressive slide delimiter
     """
-    return token["type"] == "close_html" and re.match(r'<!--\s*stop\s*-->', token["text"])
+    if token.get("type") != "block_html":
+        return False
+    return re.match(r'<!--\s*stop\s*-->', token.get("text", "")) is not None
 
 
 class Parser(object):
@@ -49,11 +238,8 @@ class Parser(object):
         :param str input_data: The input data string
         :returns: tuple of (remaining_data, slide)
         """
-        # slides are delimited by ---
-        md = mistune.Markdown()
-
-        state = {}
-        tokens = md.block.parse(input_data, state)
+        raw_tokens = _MD(input_data)
+        tokens = _normalize_tokens(raw_tokens)
 
         num_hrules, hinfo = self._scan_for_smart_split(tokens)
         keep_split_token = True

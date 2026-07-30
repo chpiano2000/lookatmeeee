@@ -18,6 +18,76 @@ from lookatme.tutorial import tutor
 from lookatme.widgets.clickable_text import ClickableText
 
 
+_INLINE_MD = mistune.create_markdown(
+    renderer=None,
+    plugins=["strikethrough", "url", "table"],
+)
+
+
+def _parse_inline_children(text):
+    """Parse a raw text snippet with mistune 3 and return the flat list of
+    inline child tokens (unwrapping the enclosing paragraph).
+    """
+    tokens = _INLINE_MD(text or "")
+    inline = []
+    for tok in tokens:
+        typ = tok.get("type")
+        if typ in ("paragraph", "block_text"):
+            inline.extend(tok.get("children", []))
+        elif typ == "blank_line":
+            continue
+        else:
+            inline.append(tok)
+    return inline
+
+
+def _render_inline_tokens(tokens):
+    """Walk a list of mistune 3 inline tokens and dispatch to the render
+    functions in :py:mod:`lookatme.render.markdown_inline`.
+    """
+    out = []
+    for t in tokens or []:
+        typ = t.get("type")
+        if typ == "text":
+            out.extend(markdown_inline_renderer.text(t.get("raw", "")))
+        elif typ == "codespan":
+            out.extend(markdown_inline_renderer.codespan(t.get("raw", "")))
+        elif typ == "emphasis":
+            inner = _render_inline_tokens(t.get("children", []))
+            out.extend(markdown_inline_renderer.emphasis(inner))
+        elif typ == "strong":
+            inner = _render_inline_tokens(t.get("children", []))
+            out.extend(markdown_inline_renderer.double_emphasis(inner))
+        elif typ == "strikethrough":
+            inner = _render_inline_tokens(t.get("children", []))
+            out.extend(markdown_inline_renderer.strikethrough(inner))
+        elif typ == "link":
+            attrs = t.get("attrs") or {}
+            inner = _render_inline_tokens(t.get("children", []))
+            out.extend(markdown_inline_renderer.link(
+                attrs.get("url", ""), attrs.get("title"), inner))
+        elif typ == "image":
+            attrs = t.get("attrs") or {}
+            inner = _render_inline_tokens(t.get("children", []))
+            out.extend(markdown_inline_renderer.image(
+                attrs.get("url", ""), attrs.get("title"), inner))
+        elif typ == "url":
+            attrs = t.get("attrs") or {}
+            url = attrs.get("url") or t.get("raw", "")
+            out.extend(markdown_inline_renderer.autolink(url))
+        elif typ == "linebreak":
+            out.extend(markdown_inline_renderer.linebreak())
+        elif typ == "softbreak":
+            out.extend(markdown_inline_renderer.text(" "))
+        elif typ == "inline_html":
+            out.extend(markdown_inline_renderer.inline_html(t.get("raw", "")))
+        else:
+            raw = t.get("raw", "")
+            if raw:
+                out.extend(markdown_inline_renderer.text(raw))
+    return out
+
+
 def _meta(item):
     if not hasattr(item, "meta"):
         meta = {}
@@ -47,6 +117,14 @@ def _is_list(item):
 
 def _list_level(item):
     return _meta(item).get("list_level", 1)
+
+
+@contrib_first
+def render_block_html(token, body, stack, loop):
+    """Render arbitrary block HTML (e.g. ``<!-- ... -->`` comments) as a
+    no-op. Progressive slide markers are handled during parsing.
+    """
+    return None
 
 
 @contrib_first
@@ -441,11 +519,14 @@ def render_text(token=None, body=None, stack=None, loop=None, text=None):
     See :any:`lookatme.tui.SlideRenderer.do_render` for additional argument and
     return value descriptions.
     """
-    if text is None and token is not None:
-        text = token["text"]
+    if token is not None and "children" in token and text is None:
+        inline_tokens = token["children"]
+    else:
+        if text is None and token is not None:
+            text = token.get("text", "")
+        inline_tokens = _parse_inline_children(text)
 
-    inline_lexer = mistune.InlineLexer(markdown_inline_renderer)
-    res = inline_lexer.output(text)
+    res = _render_inline_tokens(inline_tokens)
     if len(res) == 0:
         res = [""]
 

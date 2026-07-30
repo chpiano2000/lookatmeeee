@@ -67,10 +67,10 @@ def render_text(text, lang="text", style_name=None, plain=False):
         f"Took {time.time()-start}s to render {len(text)} bytes")
 
     markup = []
-    for x in formatter.formatgenerator(code_tokens):
+    for attr, tstring in formatter.formatgenerator(code_tokens):
         if style_bg:
-            x[0].background = style_bg
-        markup.append(x)
+            attr = urwid.AttrSpec(attr.foreground, style_bg)
+        markup.append((attr, tstring))
 
     if markup[-1][1] == "\n":
         markup = markup[:-1]
