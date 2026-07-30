@@ -109,8 +109,9 @@ def footnote_ref(key, index):
 
     Consider exploring:
 
-    * [lookatme.contrib.image_ueberzug](https://github.com/d0c-s4vage/lookatme.contrib.image_ueberzug)
-      * This works on Linux only, with X11, and must be separately installed
+    * The built-in `image` extension — renders images via the Kitty
+      graphics protocol (Unicode placeholders). Works in Kitty, Ghostty,
+      and WezTerm.
 
     <TUTOR:EXAMPLE>
     ![image alt](https://image/url)

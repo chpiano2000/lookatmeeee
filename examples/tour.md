@@ -5,7 +5,7 @@ author: James Johnson
 extensions:
   - terminal
   - qrcode
-  - image_ueberzug
+  - image
 styles:
   style: monokai
   table:
@@ -150,9 +150,9 @@ hello
 
 ![15](./nasa_orion.jpg)
 
-Extensions can also provide support for images! the
-[image_ueberzug](https://github.com/d0c-s4vage/lookatme.contrib.image_ueberzug)
-plugin makes images work in slides!
+Extensions can also provide support for images! the built-in `image`
+extension renders images via the Kitty graphics protocol (Unicode
+placeholders) — works in Kitty, Ghostty, and WezTerm.
 
 ---
 
@@ -183,12 +183,12 @@ in the middle of a slide?
 
 ~~~md
 ```terminal8
-docker run --rm -it ubuntu:18.04
+ls -la
 ```
 ~~~
 
 ```terminal8
-docker run --rm -it ubuntu:18.04
+ls -la
 ```
 
 ---

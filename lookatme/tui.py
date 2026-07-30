@@ -223,7 +223,7 @@ class MarkdownTui(urwid.Frame):
 
         urwid.set_encoding('utf8')
         screen = urwid.raw_display.Screen()
-        screen.set_terminal_properties(colors=256)
+        screen.set_terminal_properties(colors=2**24)
 
         self.root_margins = urwid.Padding(self, left=2, right=2)
         self.root_paddings = urwid.Padding(self.slide_body, left=10, right=10)
